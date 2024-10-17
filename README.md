@@ -27,9 +27,10 @@
 2. Строка для запуска /usr/local/bin/python -u /var/CommuniGate/PTConnector/connector/connector.py (ключ -u для отключения буферизации как требования протокола)
 3. Настроено правило обработки почты: 
 
+![](readme_image/helper_setting_example.png)
 
 ### Схема взаимодействия компонентов
-
+![](readme_image/main_scheme.png)
 
 ### Использованные технологии
 - В качестве сервера API используется uvicorn
