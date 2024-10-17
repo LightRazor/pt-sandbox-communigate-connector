@@ -1,0 +1,11 @@
+services:
+  sb_gateway:
+    image: ptconnector:latest
+    ports:
+      - "10001:10001"
+    volumes:
+      - .env:/gateway/.env
+      - ./gateway.log:/gateway/gateway.log
+    network_mode: "host"
+    restart: on-failure
+
