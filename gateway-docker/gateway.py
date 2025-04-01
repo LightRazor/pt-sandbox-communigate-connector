@@ -10,6 +10,9 @@ import os
 import requests
 import json
 import sys
+import email
+from email import policy
+from email.parser import BytesParser
 
 load_dotenv()
 
@@ -21,13 +24,10 @@ ConnectorPort = os.getenv('ConnectorPort')
 ConnectorVerdictUri = os.getenv('ConnectorVerdictUri')
 SBHost = os.getenv('SB_host')
 SBtoken = os.getenv('SB_token')
-SBAPIUpload = os.getenv('SB_ApiUpload')
-SBAPIScanTask = os.getenv('SB_ApiScanTask')
-AnalysisDepth = os.getenv('SB_analysis_depth')
 SBsendFileTimeout = float(os.getenv('SB_sendFileTimeout'))
 ConnectorSendVerdictTimeout = float(os.getenv('ConnectorSendVerdictTimeout'))
 LoggingLevel = os.getenv('LoggingLevel')
-
+SBCheckFile = os.getenv('SB_checkFile')
 DBFile = f'{GatewayDir}/SBscan.db'
 
 logging.basicConfig(filename=f'{GatewayDir}/gateway.log', level=logging.getLevelName(LoggingLevel), format=' %(asctime)s - %(levelname)s - %(message)s', encoding="utf-8")
@@ -43,13 +43,14 @@ name TEXT,
 ruid TEXT,
 file BLOB NOT NULL,               
 stage TEXT NOT NULL,
-file_uri TEXT,
-verdict TEXT                               
+verdict TEXT,
+subject TEXT                               
 )
 '''
 cursor.execute(createTebleQuery)
 connection.commit()
 connection.close()
+
 
 @app.post("/fileUpload/")
 async def scanItem(file: UploadFile):
@@ -57,10 +58,13 @@ async def scanItem(file: UploadFile):
         fileuuid = uuid.uuid4()
         logging.debug(f'UploadedFile: {file.filename}, {fileuuid}')
         fileContent = await file.read()
+        msg = BytesParser(policy=policy.default).parsebytes(fileContent)
+        subject = msg['Subject']
+        logging.debug(f'UploadedFile extracted Subject: {subject}')
         s_fileuuid = f'{fileuuid}'
         connection = sqlite3.connect(DBFile)
         cursor = connection.cursor()
-        cursor.execute('INSERT INTO Files (file, uuid, stage, name) VALUES (?,?,?,?)', (fileContent, s_fileuuid, 'queued', file.filename))
+        cursor.execute('INSERT INTO Files (file, uuid, stage, name, subject) VALUES (?,?,?,?,?)', (fileContent, s_fileuuid, 'queued', file.filename, subject))
         connection.commit()
         connection.close()
         return {"uuid": fileuuid}
@@ -97,64 +101,38 @@ def writeTofile(data, filename):
 
 def sendFileToSandbox():
     try:
-        threading.Timer(SBsendFileTimeout,sendFileToSandbox).start()
-        headers = {'X-API-Key': SBtoken}
-        SBFileUploadURL = SBHost + SBAPIUpload
+        threading.Timer(SBsendFileTimeout, sendFileToSandbox).start()
         connection = sqlite3.connect(DBFile)
         cursor = connection.cursor()
-        cursor.execute('SELECT name, file, uuid from Files where stage=?', ('queued',))
+        cursor.execute('SELECT name, file, uuid, subject from Files where stage=?', ('queued',))
         results = cursor.fetchall()
         for file in results:
-           try:
+            try:
                 logging.debug(f'FileName: {file[0]}')
                 filename = file[0]
                 fileContent = file[1]
                 fileUUID = file[2]
+                subject = file[3] + ".eml"
                 filePath = f'{GatewayDir}/{filename}'
-                writeTofile(fileContent, filePath) 
-                files = {'file': open(filePath, "rb")}
-                UploadFileResponse = requests.post(SBFileUploadURL, files=files, headers=headers, verify=False)
-                logging.debug(f'Upload: {UploadFileResponse.text}')
-                if UploadFileResponse.status_code == 200:
-                     os.remove(filePath)
-                     UploadFileResult = UploadFileResponse.json()
-                     logging.debug(f'UploadResult: {UploadFileResult["data"]["file_uri"]}')
-                     fileUri = UploadFileResult["data"]["file_uri"]
-                     cursor = connection.cursor()
-                     cursor.execute('UPDATE Files SET file_uri = ?, stage = ?  WHERE uuid =?', (fileUri,'send',fileUUID))
-                     connection.commit()
-                     #cursor.execute('SELECT * from Files where uuid=?', (fileUUID,))
-                     #results = cursor.fetchall()
-                     #logging.debug(f'SQLie Qeury Select file by UUID: {results}')
-                     SBFileChekURL = SBHost + SBAPIScanTask
-                     payload = {'file_uri': fileUri, 
-                                 'file_name': filename,
-                                 'options': {
-                                     'analysis_depth': AnalysisDepth,
-                                     'url_extract_enabled' : True 
-                            }
-                           }
-                     payloadjson = json.dumps(payload)
-                     logging.debug(f'PayloadJson: {payloadjson}')
-                     checkFileResponse = requests.post(SBFileChekURL, headers= headers, data = payloadjson, verify=False)
-                     logging.debug(f'ScanResult: {checkFileResponse.text}')
-                     if checkFileResponse.status_code == 200:
-                         checkFileResponseResult = checkFileResponse.json() 
-                         verdict = checkFileResponseResult["data"]["result"]["verdict"]
-                         cursor = connection.cursor()
-                         cursor.execute('UPDATE Files SET stage = ?, verdict = ? WHERE uuid =?', ('verdict', verdict,fileUUID))
-                         connection.commit()
-                         #cursor.execute('SELECT * from Files where uuid=?', (fileUUID,))
-                         #results = cursor.fetchall()
-                         #logging.debug(f'SQLie Qeury Select file by UUID: {results}')
-                         cursor.close()
-                     else:
-                         cursor.close()
-                         raise ValueError(f'Scan return code: {checkFileResponse.status_code}')     
+                writeTofile(fileContent, filePath)
+                with open(filePath, "rb") as message:
+                     headers = {'X-API-Key': SBtoken}
+                     params = {'file_name': subject}
+                     SBCheckFileURL = SBHost+SBCheckFile
+                     CheckMessageResponse = requests.post(SBCheckFileURL, headers=headers, params=params, data=message, verify=False)
+                     logging.debug(f'CheckMessageResponse: {CheckMessageResponse.text}')                
+                if CheckMessageResponse.status_code == 200:
+                    os.remove(filePath)
+                    CheckMessageResult = CheckMessageResponse.json()
+                    verdict = CheckMessageResult["data"]["result"]["verdict"]
+                    cursor = connection.cursor()
+                    cursor.execute('UPDATE Files SET stage = ?, verdict = ? WHERE uuid =?', ('verdict', verdict, fileUUID))
+                    connection.commit()
+                    cursor.close()
                 else:
                     cursor.close()
-                    raise ValueError(f'Upload return code: {UploadFileResponse.status_code}')     
-           except ValueError as e:
+                    raise ValueError(f'Scan return code: {CheckMessageResponse.status_code}')     
+            except ValueError as e:
                 logging.error(f'Failed UploadToSandBox: {repr(e)}')
                 continue
     except Exception as e:
@@ -204,4 +182,3 @@ def sendVerdictToConnector():
        sys.exit(1)         
 sendFileToSandbox()
 sendVerdictToConnector()
-       

@@ -48,32 +48,44 @@ def FILE (RUID, Args):
 
 def GatewayUpload(RUID, File):
     try:
-        files = [('file', open(File, 'rb'))]
-        UploadFileURL= f'{GatewayURL}:{GatewayPort}{GatewayFileUploadUri}'  
-        UploadFileResponse = requests.post(UploadFileURL,files=files, verify=False)
-        logging.debug(f'Upload: {UploadFileResponse.text}')
-        if UploadFileResponse.status_code == 200:
-            os.remove(File)
-            UploadFileResponseJson = UploadFileResponse.json()
-            logging.debug(f'UploadResult: {UploadFileResponseJson["uuid"]}')
-            data = {'RUID' : RUID,
-                    'UUID' : UploadFileResponseJson["uuid"]
-                    }
-            payload = json.dumps(data)
-            SetFileRUIDURL= f'{GatewayURL}:{GatewayPort}{GatewayfileRUIDUri}'
-            SetFileRUIDURLResponse = requests.post(SetFileRUIDURL, data=payload, verify=False)
-            logging.debug(f'SetRUIDResponse: {SetFileRUIDURLResponse.text}')
-        else:
-            raise ValueError(f'Upload return code: {UploadFileResponse.status_code}')   
+        # Open the file in read binary mode
+        with open(File, 'rb') as file_object:
+            files = [('file', file_object)]
+            UploadFileURL = f'{GatewayURL}:{GatewayPort}{GatewayFileUploadUri}'
+            UploadFileResponse = requests.post(UploadFileURL, files=files, verify=False)
+            logging.debug(f'Upload: {UploadFileResponse.text}')
+            if UploadFileResponse.status_code == 200:
+                # Check if the file is closed before attempting to remove it
+                if not file_object.closed:
+                    file_object.close()
+                os.remove(File)
+                UploadFileResponseJson = UploadFileResponse.json()
+                logging.debug(f'UploadResult: {UploadFileResponseJson["uuid"]}')
+                data = {'RUID': RUID,
+                        'UUID': UploadFileResponseJson["uuid"]
+                        }
+                payload = json.dumps(data)
+                SetFileRUIDURL = f'{GatewayURL}:{GatewayPort}{GatewayfileRUIDUri}'
+                SetFileRUIDURLResponse = requests.post(SetFileRUIDURL, data=payload, verify=False)
+                logging.debug(f'SetRUIDResponse: {SetFileRUIDURLResponse.text}')
+            else:
+                raise ValueError(f'Upload return code: {UploadFileResponse.status_code}')
     except ValueError as e:
-        logging.INFO(f'Failed UploadToGateway: {repr(e)}')
-        print(f'{RUID} FAILURE')  #Команда не обрабатывается, возвращает ОK и продолжает обработку
+        logging.info(f'Failed UploadToGateway: {repr(e)}')
+        print(f'{RUID} FAILURE')  # Команда не обрабатывается, возвращает OK и продолжает обработку
     except ConnectionError as e:
-            logging.INFO(f'FailedToConnect: {repr(e)}')
-            print(f'{RUID} FAILURE')  #Команда не обрабатывается, возвращает ОK и продолжает обработку
+        logging.info(f'FailedToConnect: {repr(e)}')
+        print(f'{RUID} FAILURE')  # Команда не обрабатывается, возвращает OK и продолжает обработку
+    except PermissionError as e:
+        logging.error(f'Failed UploadToGateway: {repr(e)}')
+        print(f'{RUID} FAILURE')  # Команда не обрабатывается, возвращает OK и продолжает обработку
     except Exception as e:
-        logging.error(f'Failed UploadToGateway: {repr(e)}')  
+        logging.error(f'Failed UploadToGateway: {repr(e)}')
         sys.exit(1)
+    finally:
+        # Ensure the file is closed if it was opened
+        if 'file_object' in locals():
+            file_object.close()
 
 app = FastAPI()
 

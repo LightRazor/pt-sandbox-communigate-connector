@@ -1,9 +1,6 @@
 # Коннектор CommuniGate Pro к PT Sandbox
 Интеграция почтового сервера CommuniGate Pro и PT Sandbox для подключения в разрыв на основе механизма помощников
 
-# Коннектор CommuniGate Pro к PT Sandbox
-Интеграция почтового сервера CommuniGate Pro и PT Sandbox для подключения в разрыв на основе механизма помощников
-
 ## Текущая логика работы служб:
 ### Connector
 1. Использует протокол помощников ComuniGate (https://old.communigatepro.ru/CommuniGatePro/russian/Helpers.html#Protocol)
