@@ -59,8 +59,17 @@ async def scanItem(file: UploadFile):
         logging.debug(f'UploadedFile: {file.filename}, {fileuuid}')
         fileContent = await file.read()
         msg = BytesParser(policy=policy.default).parsebytes(fileContent)
-        subject = msg['Subject']
-        logging.debug(f'UploadedFile extracted Subject: {subject}')
+        try:
+            subject = msg['Subject']
+            logging.debug(f'UploadedFile extracted Subject: {subject}')
+        except KeyError:
+            subject = file.filename  # Если Subject не найден, используем имя файла
+            logging.debug(f'Subject not found in email. Using filename: {file.filename}')
+        else:
+        # Проверяем, не пустая ли строка subject
+            if not subject.strip():  # strip() удаляет пробелы в начале и конце строки
+                subject = file.filename  # Если пустая, используем имя файла
+                logging.debug(f'Subject is empty. Using filename: {file.filename}')
         s_fileuuid = f'{fileuuid}'
         connection = sqlite3.connect(DBFile)
         cursor = connection.cursor()
@@ -119,10 +128,15 @@ def sendFileToSandbox():
                      headers = {'X-API-Key': SBtoken}
                      params = {'file_name': subject}
                      SBCheckFileURL = SBHost+SBCheckFile
+                     cursor = connection.cursor()
+                     cursor.execute('UPDATE Files SET stage = ? WHERE uuid =?', ('processing', fileUUID))
+                     connection.commit()
+                     cursor.close()
                      CheckMessageResponse = requests.post(SBCheckFileURL, headers=headers, params=params, data=message, verify=False)
                      logging.debug(f'CheckMessageResponse: {CheckMessageResponse.text}')                
                 if CheckMessageResponse.status_code == 200:
-                    os.remove(filePath)
+                    if os.path.exists(filePath):
+                        os.remove(filePath)
                     CheckMessageResult = CheckMessageResponse.json()
                     verdict = CheckMessageResult["data"]["result"]["verdict"]
                     cursor = connection.cursor()
@@ -130,6 +144,9 @@ def sendFileToSandbox():
                     connection.commit()
                     cursor.close()
                 else:
+                    cursor = connection.cursor()
+                    cursor.execute('UPDATE Files SET stage = ? WHERE uuid =?', ('queued', fileUUID))
+                    connection.commit()
                     cursor.close()
                     raise ValueError(f'Scan return code: {CheckMessageResponse.status_code}')     
             except ValueError as e:
