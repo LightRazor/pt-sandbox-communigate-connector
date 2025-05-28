@@ -113,16 +113,23 @@ def runStdIn():
         data = input()
         logging.debug({data})
         try:
-            data_regex = re.compile(r'\d+\s\w{4}\s\S+')
+            data_regex = re.compile(r'\d+\s\w{4}(\s\S*)?')
+            
             data_in = data_regex.match(data).group(0)
             logging.debug(f'Found: {data_in}')
+            
             RUID = data_in.split(" ")[0]
             Command = data_in.split(" ")[1]
-            Args = data_in.split(" ")[2]    
+            Args = " ".join(data_in.split(" ")[2:]) if len(data_in.split(" ")) > 2 else ""    
+            
             if Command == 'INTF':
                INTF(RUID, Args)
             elif Command == 'FILE':
                FILE(RUID, Args)
+            elif Command == 'QUIT':
+                print(f'{RUID} OK')
+                logging.info("Received QUIT command. Exiting.")
+                sys.exit(0)  # Завершаем программу
             else: 
                 print(f'{RUID} FAILURE')  #Команда не обрабатывается, возвращает ОK и продолжает обработку
         except AttributeError as e:
