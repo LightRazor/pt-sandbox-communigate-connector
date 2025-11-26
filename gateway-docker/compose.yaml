@@ -3,9 +3,16 @@ services:
     image: ptconnector:latest
     ports:
       - "10001:10001"
+      - "10002:10002"  # если нужен доступ к порту извне
     volumes:
       - .env:/gateway/.env
       - ./gateway.log:/gateway/gateway.log
-    network_mode: "host"
+    networks:
+      - gateway_network
     restart: on-failure
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # для доступа к localhost хоста
 
+networks:
+  gateway_network:
+    driver: bridge
